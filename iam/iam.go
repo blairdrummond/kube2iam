@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"io"
 	"io/ioutil"
+	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -41,6 +44,29 @@ type Credentials struct {
 	SecretAccessKey string
 	Token           string
 	Type            string
+}
+
+const (
+	disableClientEnvVar = "AWS_EC2_METADATA_DISABLED"
+
+	// Client endpoint options
+	endpointEnvVar = "AWS_EC2_METADATA_SERVICE_ENDPOINT"
+
+	defaultIPv4Endpoint = "http://169.254.169.254"
+	defaultIPv6Endpoint = "http://[fd00:ec2::254]"
+)
+
+// return "" if no special endpoint set
+func getEC2Endpoint() (string, error) {
+	if v := os.Getenv(disableClientEnvVar); len(v) != 0 {
+		return "", fmt.Errorf("AWS_EC2_METADATA_DISABLED is set")
+	}
+
+	if v := os.Getenv(endpointEnvVar); len(v) != 0 {
+		return v, nil
+	}
+
+	return "", nil
 }
 
 func getHash(text string) string {
@@ -93,10 +119,46 @@ func GetInstanceIAMRole() (string, error) {
 func (iam *Client) GetInstanceId() (string, error) {
 	instanceId, err := getInstanceMetadata("instance-id")
 
+	// exit early if this works
+	if err == nil {
+		return string(instanceId), nil
+	}
+
+	// we might be on an IMDSv2 API. Let's not give up yet
+	endpoint, err := getEC2Endpoint()
 	if err != nil {
 		return "", err
 	}
-	return string(instanceId), nil
+
+	attempt := func(e string) error {
+		tokenReq, err := http.NewRequest("PUT", fmt.Sprintf("http://%s/latest/api/token", e), nil)
+		if err != nil {
+			return err
+		}
+		tokenReq.Header.Add("X-aws-ec2-metadata-token-ttl-seconds", "60")
+		tokenResp, err := http.DefaultClient.Do(tokenReq)
+		if err != nil {
+			return err
+		}
+		_, err = io.ReadAll(tokenResp.Body)
+		return err
+	}
+
+	// try the supplied endpoint or the two default endpoints
+	if endpoint != "" {
+		err = attempt(endpoint)
+	} else {
+		err = attempt(defaultIPv4Endpoint)
+		if err != nil {
+			err = attempt(defaultIPv6Endpoint)
+		}
+	}
+
+	if err == nil {
+		return "i-phony-ec2", nil
+	}
+
+	return "", fmt.Errorf("could not get instance-id or IMDSv2 token")
 }
 
 func sessionName(roleARN, remoteIP string) string {
