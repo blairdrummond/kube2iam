@@ -24,8 +24,14 @@ func AddRule(appPort, metadataAddress, hostInterface, hostIP string) error {
 		return err
 	}
 
+	// host, port, err := net.SplitHostPort(metadataAddress)
+	// if err != nil {
+	// 	port = "80"
+	// 	host = metadataAddress
+	// }
+
 	return ipt.AppendUnique(
-		"nat", "PREROUTING", "-p", "tcp", "-d", metadataAddress, "--dport", "80",
+		"nat", "PREROUTING", "-p", "tcp", "-d", "169.254.169.254", "--dport", "80",
 		"-j", "DNAT", "--to-destination", hostIP+":"+appPort, "-i", hostInterface,
 	)
 }

@@ -5,14 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
-	"io/ioutil"
 	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	smithy "github.com/aws/smithy-go"
 	"github.com/jtblin/kube2iam/metrics"
@@ -53,30 +52,32 @@ func getHash(text string) string {
 }
 
 func getInstanceMetadata(path string) (string, error) {
-	cfg, err := config.LoadDefaultConfig(context.TODO())
-	if err != nil {
-		return "", err
-	}
+	return "i-asdfasdf", nil
 
-	client := imds.NewFromConfig(cfg)
-	metadataResult, err := client.GetMetadata(context.TODO(), &imds.GetMetadataInput{
-		Path: path,
-	})
-	if err != nil {
-		return "", fmt.Errorf("EC2 Metadata [%s] response error, got %v", err, path)
-	}
-	// https://aws.github.io/aws-sdk-go-v2/docs/making-requests/#responses-with-ioreadcloser
-	defer metadataResult.Content.Close()
-	instanceId, err := ioutil.ReadAll(metadataResult.Content)
+	// cfg, err := config.LoadDefaultConfig(context.TODO())
+	// if err != nil {
+	// 	return "", err
+	// }
 
-	if err != nil {
-		return "", fmt.Errorf("Expect to read content [%s] from bytes, got %v", err, path)
-	}
+	// client := imds.NewFromConfig(cfg)
+	// metadataResult, err := client.GetMetadata(context.TODO(), &imds.GetMetadataInput{
+	// 	Path: path,
+	// })
+	// if err != nil {
+	// 	return "", fmt.Errorf("EC2 Metadata [%s] response error, got %v", err, path)
+	// }
+	// // https://aws.github.io/aws-sdk-go-v2/docs/making-requests/#responses-with-ioreadcloser
+	// defer metadataResult.Content.Close()
+	// instanceId, err := ioutil.ReadAll(metadataResult.Content)
 
-	if string(instanceId) == "" {
-		return "", fmt.Errorf("EC2 Metadata didn't returned [%s], got empty string", path)
-	}
-	return string(instanceId), nil
+	// if err != nil {
+	// 	return "", fmt.Errorf("Expect to read content [%s] from bytes, got %v", err, path)
+	// }
+
+	// if string(instanceId) == "" {
+	// 	return "", fmt.Errorf("EC2 Metadata didn't returned [%s], got empty string", path)
+	// }
+	// return string(instanceId), nil
 }
 
 // GetInstanceIAMRole get instance IAM role from metadata service.
@@ -91,12 +92,14 @@ func GetInstanceIAMRole() (string, error) {
 
 // Get InstanceId for healthcheck
 func (iam *Client) GetInstanceId() (string, error) {
-	instanceId, err := getInstanceMetadata("instance-id")
+	return "i-asdfasdf", nil
 
-	if err != nil {
-		return "", err
-	}
-	return string(instanceId), nil
+	// instanceId, err := getInstanceMetadata("instance-id")
+
+	// if err != nil {
+	// 	return "", err
+	// }
+	// return string(instanceId), nil
 }
 
 func sessionName(roleARN, remoteIP string) string {
@@ -144,29 +147,46 @@ func IsValidRegion(promisedLand string, regions *ec2.DescribeRegionsOutput) bool
 //
 // https://stackoverflow.com/a/69935735/3945261
 func loadRegions() (*ec2.DescribeRegionsOutput, error) {
-	regionsCache, err := cache.Fetch("awsRegions", time.Hour*24*30, func() (interface{}, error) {
-		cfg, err := config.LoadDefaultConfig(context.TODO())
-		if err != nil {
-			return nil, err
-		}
-		ec2Client := ec2.NewFromConfig(cfg)
-		r, err := ec2Client.DescribeRegions(context.TODO(), &ec2.DescribeRegionsInput{})
-		if err != nil {
-			return nil, err
-		}
 
-		return r, nil
-	})
-
-	if err != nil {
-		return nil, err
+	s := "us-east-1"
+	x := ec2.DescribeRegionsOutput{
+		Regions: []types.Region{
+			{
+				RegionName: &s,
+			},
+		},
 	}
 
-	return regionsCache.Value().(*ec2.DescribeRegionsOutput), nil
+	return &x, nil
+
+	// regionsCache, err := cache.Fetch("awsRegions", time.Hour*24*30, func() (interface{}, error) {
+	// 	cfg, err := config.LoadDefaultConfig(context.TODO())
+	// 	if err != nil {
+	// 		fmt.Printf("ERROR line 152: %s\n=====\n", err.Error())
+	// 		return nil, err
+	// 	}
+	// 	ec2Client := ec2.NewFromConfig(cfg)
+	// 	r, err := ec2Client.DescribeRegions(context.TODO(), &ec2.DescribeRegionsInput{})
+	// 	if err != nil {
+	// 		fmt.Printf("ERROR line 158: %s\n=====\n", err.Error())
+	// 		return nil, err
+	// 	}
+
+	// 	return r, nil
+	// })
+
+	// if err != nil {
+	// 		fmt.Printf("ERROR line 166: %s\n=====\n", err.Error())
+	// 	return nil, err
+	// }
+
+	// return regionsCache.Value().(*ec2.DescribeRegionsOutput), nil
 }
 
 // AssumeRole returns an IAM role Credentials using AWS STS.
 func (iam *Client) AssumeRole(roleARN, externalID string, remoteIP string, sessionTTL time.Duration) (*Credentials, error) {
+	fmt.Println("HERE")
+
 	hitCache := true
 	item, err := cache.Fetch(roleARN, sessionTTL, func() (interface{}, error) {
 		hitCache = false
@@ -182,6 +202,7 @@ func (iam *Client) AssumeRole(roleARN, externalID string, remoteIP string, sessi
 
 		regions, err := loadRegions()
 		if err != nil {
+			fmt.Println("LOOK AN ERROR")
 			return nil, err
 		}
 
